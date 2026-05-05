@@ -27,56 +27,65 @@ jobs:
 
       - name: Slugify issue title
         id: slug
+        env:
+          ISSUE_TITLE: ${{ github.event.issue.title }}
         run: |
-          SLUG=$(echo "${{ github.event.issue.title }}" \
+          SLUG=$(echo "$ISSUE_TITLE" \
             | tr '[:upper:]' '[:lower:]' \
             | sed 's/[^a-z0-9]/-/g' \
             | sed 's/--*/-/g' \
             | sed 's/^-//' \
             | sed 's/-$//' \
             | cut -c1-50)
-          echo "value=${SLUG}" >> $GITHUB_OUTPUT
+          echo "value=${SLUG}" >> "$GITHUB_OUTPUT"
 
       - name: Create feature branch
         run: |
           BRANCH="ai/${{ github.event.issue.number }}-${{ steps.slug.outputs.value }}"
           git checkout -b "$BRANCH"
-          echo "BRANCH=$BRANCH" >> $GITHUB_ENV
+          echo "BRANCH=$BRANCH" >> "$GITHUB_ENV"
 
       - name: Run Claude Code
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
         run: |
           claude --print \
-            "You are working on a GitHub issue. Make the minimal changes needed to address it.\n\nIssue #${{ github.event.issue.number }}: ${{ github.event.issue.title }}\n\n${{ github.event.issue.body }}" \
+            "You are working on a GitHub issue. Make the minimal changes needed to address it.\n\nIssue #${ISSUE_NUMBER}: ${ISSUE_TITLE}\n\n${ISSUE_BODY}" \
             || echo "Claude Code exited with error $?"
 
       - name: Commit changes
         id: commit
+        env:
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
           if git diff --cached --quiet; then
-            echo "made_changes=false" >> $GITHUB_OUTPUT
+            echo "made_changes=false" >> "$GITHUB_OUTPUT"
           else
-            git commit -m "ai: address issue #${{ github.event.issue.number }}"
+            git commit -m "ai: address issue #${ISSUE_NUMBER}"
             git push origin "$BRANCH"
-            echo "made_changes=true" >> $GITHUB_OUTPUT
+            echo "made_changes=true" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Create draft PR (with changes)
         if: steps.commit.outputs.made_changes == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
         run: |
           gh pr create \
-            --title "[AI] ${{ github.event.issue.title }}" \
-            --body "Closes #${{ github.event.issue.number }}
+            --title "[AI] ${ISSUE_TITLE}" \
+            --body "Closes #${ISSUE_NUMBER}
 
           AI-generated draft. Review carefully before merging.
 
-          **Issue:** #${{ github.event.issue.number }} — ${{ github.event.issue.title }}" \
+          **Issue:** #${ISSUE_NUMBER} — ${ISSUE_TITLE}" \
             --base develop \
             --head "$BRANCH" \
             --draft \
@@ -86,16 +95,18 @@ jobs:
         if: steps.commit.outputs.made_changes == 'false'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
         run: |
-          git commit --allow-empty -m "ai: no changes generated for issue #${{ github.event.issue.number }}"
+          git commit --allow-empty -m "ai: no changes generated for issue #${ISSUE_NUMBER}"
           git push origin "$BRANCH"
           gh pr create \
-            --title "[AI] ${{ github.event.issue.title }}" \
-            --body "Closes #${{ github.event.issue.number }}
+            --title "[AI] ${ISSUE_TITLE}" \
+            --body "Closes #${ISSUE_NUMBER}
 
           :warning: The AI agent did not generate any changes for this issue. This PR is a placeholder — a human should review the issue and add implementation.
 
-          **Issue:** #${{ github.event.issue.number }} — ${{ github.event.issue.title }}" \
+          **Issue:** #${ISSUE_NUMBER} — ${ISSUE_TITLE}" \
             --base develop \
             --head "$BRANCH" \
             --draft \

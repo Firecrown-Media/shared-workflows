@@ -49,7 +49,7 @@ jobs:
 
       - name: Determine built branch name
         id: built-branch
-        run: echo "name=${{ github.ref_name }}-built" >> $GITHUB_OUTPUT
+        run: echo "name=${{ github.ref_name }}-built" >> "$GITHUB_OUTPUT"
 
       - name: Configure Git for push
         run: |
