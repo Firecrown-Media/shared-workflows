@@ -1,0 +1,65 @@
+name: Deploy to VIP
+
+on:
+  workflow_call:
+    inputs:
+      php_version:
+        description: PHP version to use
+        required: false
+        type: string
+        default: '8.2'
+      node_version:
+        description: Node.js version to use
+        required: false
+        type: string
+        default: '20'
+
+jobs:
+  deploy:
+    name: Build and deploy to VIP
+    runs-on: ubuntu-latest
+    environment: ${{ github.ref_name }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up PHP ${{ inputs.php_version }}
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ inputs.php_version }}
+          tools: composer
+
+      - name: Set up Node ${{ inputs.node_version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node_version }}
+          cache: 'npm'
+
+      - name: Install Composer dependencies
+        run: composer install --no-dev --optimize-autoloader --no-interaction
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Build assets
+        run: npm run build
+
+      - name: Determine built branch name
+        id: built-branch
+        run: echo "name=${{ github.ref_name }}-built" >> $GITHUB_OUTPUT
+
+      - name: Configure Git for push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Stage built assets and push to built branch
+        run: |
+          # Stage all files including build output (node_modules excluded via .gitignore)
+          git add -A
+          git diff --cached --quiet && echo "No changes to deploy" && exit 0
+          git commit -m "build: compile assets from ${{ github.sha }}"
+          git push --force origin HEAD:refs/heads/${{ steps.built-branch.outputs.name }}
