@@ -1,0 +1,51 @@
+name: Sync to VIP
+
+on:
+  workflow_call:
+    inputs:
+      target_repo:
+        description: 'Target wpcomvip repo (e.g. wpcomvip/astronomy-com)'
+        required: true
+        type: string
+      target_branch:
+        description: 'Branch to push to on the target repo (e.g. stage, production)'
+        required: true
+        type: string
+      php_version:
+        description: 'PHP version (for optional pre-sync steps)'
+        required: false
+        type: string
+        default: '8.2'
+      node_version:
+        description: 'Node version (for optional pre-sync steps)'
+        required: false
+        type: string
+        default: '20'
+    secrets:
+      deploy_token:
+        description: 'PAT with write access to the target wpcomvip repo'
+        required: true
+
+jobs:
+  sync:
+    name: Sync to ${{ inputs.target_repo }}@${{ inputs.target_branch }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Add VIP remote
+        run: |
+          git remote add vip "https://x-access-token:${{ secrets.deploy_token }}@github.com/${{ inputs.target_repo }}.git"
+
+      - name: Push to VIP
+        run: |
+          git push vip "HEAD:refs/heads/${{ inputs.target_branch }}" --force
