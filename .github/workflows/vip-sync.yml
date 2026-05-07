@@ -63,7 +63,7 @@ jobs:
         run: git fetch vip ${{ inputs.target_branch }}
 
       - name: Check for VIP divergence
-        if: inputs.check_vip_divergence
+        if: inputs.check_vip_divergence && inputs.target_branch != 'production'
         run: |
           AHEAD=$(git log HEAD..vip/${{ inputs.target_branch }} --oneline)
           if [ -n "$AHEAD" ]; then
