@@ -8,16 +8,26 @@ on:
         required: false
         type: string
         default: '8.2'
+      scan_mode:
+        description: "'delta' scans changed files only; 'full' scans entire repo and opens an issue"
+        required: false
+        type: string
+        default: 'delta'
 
 jobs:
   phpcs:
     name: PHP_CodeSniffer
     runs-on: ubuntu-latest
     if: vars.ENABLE_PHPCS != 'false'
+    permissions:
+      issues: write
+      contents: read
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up PHP ${{ inputs.php_version }}
         uses: shivammathur/setup-php@v2
@@ -32,5 +42,44 @@ jobs:
             dealerdirect/phpcodesniffer-composer-installer \
             --no-interaction --no-progress
 
-      - name: Run PHPCS
-        run: vendor/bin/phpcs --report=checkstyle | cs2pr
+      - name: Run PHPCS delta scan
+        if: inputs.scan_mode == 'delta'
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            FILES=$(git diff --name-only --diff-filter=ACMRT "origin/${{ github.base_ref }}...HEAD" | grep -E '\.(php|js)$' || true)
+          else
+            FILES=$(git diff --name-only --diff-filter=ACMRT "${{ github.event.before }}" "${{ github.sha }}" | grep -E '\.(php|js)$' || true)
+          fi
+          if [ -z "$FILES" ]; then
+            echo "No PHP or JS files changed — skipping PHPCS."
+            exit 0
+          fi
+          COUNT=$(echo "$FILES" | wc -l | tr -d ' ')
+          echo "Scanning $COUNT changed file(s):"
+          echo "$FILES"
+          echo "$FILES" | xargs vendor/bin/phpcs --report=checkstyle | cs2pr
+
+      - name: Run PHPCS full scan
+        if: inputs.scan_mode == 'full'
+        run: vendor/bin/phpcs --report=full > /tmp/phpcs-output.txt 2>&1 || true
+
+      - name: Create GitHub issue with full scan results
+        if: inputs.scan_mode == 'full'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          DATE=$(date +%Y-%m-%d)
+          BODY_FILE=$(mktemp)
+          {
+            echo "## PHPCS full scan baseline — $DATE"
+            echo ""
+            echo "Created by a manual \`workflow_dispatch\` full scan. Covers all files configured in \`.phpcs.xml.dist\` (\`./plugins/\`, \`./client-mu-plugins/\`, \`./themes/\`). Use as a baseline before delta-only scanning takes over."
+            echo ""
+            echo '```'
+            head -c 60000 /tmp/phpcs-output.txt || true
+            echo '```'
+          } > "$BODY_FILE"
+          gh issue create \
+            --repo "${{ github.repository }}" \
+            --title "PHPCS full scan baseline — $DATE" \
+            --body-file "$BODY_FILE"
