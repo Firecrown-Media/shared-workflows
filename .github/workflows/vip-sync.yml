@@ -22,7 +22,7 @@ on:
         type: string
         default: '20'
       check_vip_divergence:
-        description: 'Check whether VIP has commits not present in this branch before pushing. Set to false to skip (e.g. main → production).'
+        description: 'Check whether VIP has commits not present in this branch before pushing. Set to false to opt out (not recommended).'
         required: false
         type: boolean
         default: true
@@ -63,7 +63,7 @@ jobs:
         run: git fetch vip ${{ inputs.target_branch }}
 
       - name: Check for VIP divergence
-        if: inputs.check_vip_divergence && inputs.target_branch != 'production'
+        if: inputs.check_vip_divergence
         run: |
           AHEAD=$(git log HEAD..vip/${{ inputs.target_branch }} --oneline)
           if [ -n "$AHEAD" ]; then
