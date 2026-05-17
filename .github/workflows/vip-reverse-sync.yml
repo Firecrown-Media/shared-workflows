@@ -137,19 +137,23 @@ jobs:
           PR_URL="${{ steps.create_hotfix.outputs.pr_url }}"
           COMMITS="${{ steps.divergence.outputs.commits }}"
           COUNT=$(echo "$COMMITS" | wc -l | tr -d ' ')
+          ACTOR="${{ github.actor }}"
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           PAYLOAD=$(jq -n \
             --arg repo "$REPO_NAME" \
             --arg pr "$PR_URL" \
             --arg commits "$COMMITS" \
             --arg count "$COUNT" \
+            --arg actor "$ACTOR" \
             --arg source "${{ inputs.source_repo }}:${{ inputs.source_branch }}" \
             --arg run_url "$RUN_URL" \
             --arg run_num "${{ github.run_number }}" \
             '{
               text: "🔄 \($repo) — VIP hotfix PR opened",
               blocks: [
-                { type: "section", text: { type: "mrkdwn", text: "🔄 *\($repo)* — VIP hotfix PR opened\n\($count) commit(s) from `\($source)`:\n```\n\($commits)\n```" } },
+                { type: "section", text: { type: "mrkdwn", text: "🔄 *\($repo)* — VIP hotfix PR opened" } },
+                { type: "section", text: { type: "mrkdwn", text: "\($count) commit(s) from `\($source)` · triggered by @\($actor)" } },
+                { type: "rich_text", elements: [ { type: "rich_text_preformatted", elements: [ { type: "text", text: $commits } ] } ] },
                 { type: "context", elements: [ { type: "mrkdwn", text: "<\($pr)|view PR> · <\($run_url)|view run>" } ] }
               ]
             }')
@@ -179,17 +183,21 @@ jobs:
           REPO_NAME="${{ github.event.repository.name }}"
           PR_URL="${{ steps.existing_pr.outputs.pr_url }}"
           COMMITS="${{ steps.divergence.outputs.commits }}"
+          ACTOR="${{ github.actor }}"
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           PAYLOAD=$(jq -n \
             --arg repo "$REPO_NAME" \
             --arg pr "$PR_URL" \
             --arg commits "$COMMITS" \
+            --arg actor "$ACTOR" \
             --arg run_url "$RUN_URL" \
             --arg run_num "${{ github.run_number }}" \
             '{
               text: "🔄 \($repo) — existing hotfix PR updated",
               blocks: [
-                { type: "section", text: { type: "mrkdwn", text: "🔄 *\($repo)* — existing hotfix PR updated with new VIP commits\n```\n\($commits)\n```" } },
+                { type: "section", text: { type: "mrkdwn", text: "🔄 *\($repo)* — existing hotfix PR updated with new VIP commits" } },
+                { type: "section", text: { type: "mrkdwn", text: "triggered by @\($actor)" } },
+                { type: "rich_text", elements: [ { type: "rich_text_preformatted", elements: [ { type: "text", text: $commits } ] } ] },
                 { type: "context", elements: [ { type: "mrkdwn", text: "<\($pr)|view PR> · <\($run_url)|view run>" } ] }
               ]
             }')
