@@ -312,7 +312,7 @@ jobs:
             '{
               text: "\($emoji) \($repo) → \($target):\($branch)",
               blocks: [
-                { type: "section", text: { type: "mrkdwn", text: "\($emoji) *\($repo)* → `\($target):*\($branch)*`" } },
+                { type: "section", text: { type: "mrkdwn", text: "\($emoji) *\($repo)* → `\($target):\($branch)`" } },
                 { type: "section", text: { type: "mrkdwn", text: ("`\($sha)` \($msg)\nby @\($actor)" + $pr_line) } },
                 { type: "context", elements: [ { type: "mrkdwn", text: "Run #\($run_num) · <\($run_url)|view logs>" } ] }
               ]
