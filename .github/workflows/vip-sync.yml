@@ -200,9 +200,28 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         continue-on-error: true
         run: |
+          # Primary: any failed step inside the sync job
           NAME=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/jobs" \
             --jq '.jobs[] | select(.name | startswith("Sync to")) | .steps[] | select(.conclusion == "failure") | .name' \
             | head -1)
+          # Fallback 1: any failed step across all jobs (covers reusable-workflow indirection edge cases)
+          if [ -z "$NAME" ]; then
+            NAME=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/jobs" \
+              --jq '.jobs[] | .steps[] | select(.conclusion == "failure") | .name' \
+              | head -1)
+          fi
+          # Fallback 2: workflow-evaluation failures (no failed step exists in the API). Pull the
+          # first annotation message from the run's check_runs. This catches errors like
+          # "Secret X is required, but not provided while calling."
+          if [ -z "$NAME" ]; then
+            JOB_ID=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/jobs" --jq '.jobs[0].id // empty')
+            if [ -n "$JOB_ID" ]; then
+              NAME=$(gh api "repos/${GITHUB_REPOSITORY}/check-runs/${JOB_ID}/annotations" \
+                --jq '.[0].message // .[0].title // empty' 2>/dev/null \
+                | tr '\n' ' ' \
+                | head -c 120)
+            fi
+          fi
           echo "name=${NAME:-unknown step}" >> $GITHUB_OUTPUT
 
       - name: Notify Slack — divergence failure
@@ -210,17 +229,24 @@ jobs:
         continue-on-error: true
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_VIP_PIPELINES_WEBHOOK }}
+          HEAD_COMMIT_ID: ${{ github.event.head_commit.id }}
+          HEAD_COMMIT_MSG: ${{ github.event.head_commit.message }}
         run: |
           REPO_NAME="${{ github.event.repository.name }}"
           TARGET_BRANCH="${{ inputs.target_branch }}"
           TARGET_REPO="${{ inputs.target_repo }}"
           ACTOR="${{ github.actor }}"
-          SHA_SHORT=$(git rev-parse --short HEAD)
-          COMMIT_MSG=$(git log -1 --pretty=%s)
+          # Prefer the triggering push commit over the workflow's own artifact commit.
+          if [ -n "$HEAD_COMMIT_ID" ]; then
+            SHA_SHORT="${HEAD_COMMIT_ID:0:7}"
+            COMMIT_MSG=$(printf '%s' "$HEAD_COMMIT_MSG" | head -1)
+          else
+            SHA_SHORT=$(git rev-parse --short HEAD)
+            COMMIT_MSG=$(git log -1 --pretty=%s)
+          fi
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           AHEAD="${{ steps.divergence_check.outputs.ahead_commits }}"
-          HEAD_MSG="${{ github.event.head_commit.message }}"
-          PR_NUM=$(printf '%s' "$HEAD_MSG" | head -1 | grep -oE '#[0-9]+' | head -1 | tr -d '#' || true)
+          PR_NUM=$(printf '%s' "$HEAD_COMMIT_MSG" | head -1 | grep -oE '#[0-9]+' | head -1 | tr -d '#' || true)
           PR_LINE=""
           if [ -n "$PR_NUM" ]; then
             PR_LINE=" · <${{ github.server_url }}/${{ github.repository }}/pull/${PR_NUM}|PR #${PR_NUM}>"
@@ -254,17 +280,23 @@ jobs:
         continue-on-error: true
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_VIP_PIPELINES_WEBHOOK }}
+          HEAD_COMMIT_ID: ${{ github.event.head_commit.id }}
+          HEAD_COMMIT_MSG: ${{ github.event.head_commit.message }}
         run: |
           REPO_NAME="${{ github.event.repository.name }}"
           TARGET_BRANCH="${{ inputs.target_branch }}"
           ACTOR="${{ github.actor }}"
-          SHA_SHORT=$(git rev-parse --short HEAD)
-          COMMIT_MSG=$(git log -1 --pretty=%s)
+          if [ -n "$HEAD_COMMIT_ID" ]; then
+            SHA_SHORT="${HEAD_COMMIT_ID:0:7}"
+            COMMIT_MSG=$(printf '%s' "$HEAD_COMMIT_MSG" | head -1)
+          else
+            SHA_SHORT=$(git rev-parse --short HEAD)
+            COMMIT_MSG=$(git log -1 --pretty=%s)
+          fi
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           FAILING_STEP="${{ steps.failing_step.outputs.name }}"
           [ -z "$FAILING_STEP" ] && FAILING_STEP="unknown step"
-          HEAD_MSG="${{ github.event.head_commit.message }}"
-          PR_NUM=$(printf '%s' "$HEAD_MSG" | head -1 | grep -oE '#[0-9]+' | head -1 | tr -d '#' || true)
+          PR_NUM=$(printf '%s' "$HEAD_COMMIT_MSG" | head -1 | grep -oE '#[0-9]+' | head -1 | tr -d '#' || true)
           PR_LINE=""
           if [ -n "$PR_NUM" ]; then
             PR_LINE=" · <${{ github.server_url }}/${{ github.repository }}/pull/${PR_NUM}|PR #${PR_NUM}>"
@@ -294,21 +326,27 @@ jobs:
         continue-on-error: true
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_VIP_PIPELINES_WEBHOOK }}
+          HEAD_COMMIT_ID: ${{ github.event.head_commit.id }}
+          HEAD_COMMIT_MSG: ${{ github.event.head_commit.message }}
         run: |
           REPO_NAME="${{ github.event.repository.name }}"
           TARGET_BRANCH="${{ inputs.target_branch }}"
           TARGET_REPO="${{ inputs.target_repo }}"
           ACTOR="${{ github.actor }}"
-          SHA_SHORT=$(git rev-parse --short HEAD)
-          COMMIT_MSG=$(git log -1 --pretty=%s)
+          if [ -n "$HEAD_COMMIT_ID" ]; then
+            SHA_SHORT="${HEAD_COMMIT_ID:0:7}"
+            COMMIT_MSG=$(printf '%s' "$HEAD_COMMIT_MSG" | head -1)
+          else
+            SHA_SHORT=$(git rev-parse --short HEAD)
+            COMMIT_MSG=$(git log -1 --pretty=%s)
+          fi
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           if [ "$TARGET_BRANCH" = "production" ]; then
             EMOJI="🚀"
           else
             EMOJI="✅"
           fi
-          HEAD_MSG="${{ github.event.head_commit.message }}"
-          PR_NUM=$(printf '%s' "$HEAD_MSG" | head -1 | grep -oE '#[0-9]+' | head -1 | tr -d '#' || true)
+          PR_NUM=$(printf '%s' "$HEAD_COMMIT_MSG" | head -1 | grep -oE '#[0-9]+' | head -1 | tr -d '#' || true)
           PR_LINE=""
           if [ -n "$PR_NUM" ]; then
             PR_LINE=" · <${{ github.server_url }}/${{ github.repository }}/pull/${PR_NUM}|PR #${PR_NUM}>"
@@ -327,7 +365,7 @@ jobs:
             '{
               text: "\($emoji) \($repo) → \($target):\($branch)",
               blocks: [
-                { type: "section", text: { type: "mrkdwn", text: "\($emoji) *\($repo)* → `\($target):*\($branch)*`" } },
+                { type: "section", text: { type: "mrkdwn", text: "\($emoji) *\($repo)* → `\($target):\($branch)`" } },
                 { type: "section", text: { type: "mrkdwn", text: ("`\($sha)` \($msg)\nby @\($actor)" + $pr_line) } },
                 { type: "context", elements: [ { type: "mrkdwn", text: "Run #\($run_num) · <\($run_url)|view logs>" } ] }
               ]
