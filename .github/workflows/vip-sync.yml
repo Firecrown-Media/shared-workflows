@@ -162,7 +162,22 @@ jobs:
         id: divergence_check
         if: inputs.check_vip_divergence
         run: |
-          AHEAD=$(git log HEAD..vip/${{ inputs.target_branch }} --oneline)
+          # Find commits on the VIP branch that aren't in our local HEAD.
+          # EXCEPT: commits authored by github-actions[bot] with message
+          # "ci: build deploy artifacts (vendor, build)" are CI's own
+          # output from prior deploys (the "Stage built artifacts into
+          # deploy commit" step in this workflow). They look identical
+          # to "VIP-side hotfix" from a graph perspective, but they're
+          # always our own commits and they always get force-overwritten
+          # by the next push. Excluding them prevents every deploy after
+          # the first from blocking on a self-induced divergence.
+          #
+          # Real VIP-side hotfixes from VIP staff have different authors
+          # and messages, so they still surface here and still block.
+          AHEAD=$(git log HEAD..vip/${{ inputs.target_branch }} \
+                    --format='%h %an: %s' \
+                  | grep -v '^[a-f0-9]\+ github-actions\[bot\]: ci: build deploy artifacts' \
+                  || true)
           if [ -n "$AHEAD" ]; then
             echo "::error::VIP has commits not present in this branch:"
             echo "$AHEAD"
